@@ -61,6 +61,9 @@ class Jarm:
             self.verbose = False
 
 
+        self.init_output()
+
+
         if args.input:
             input_file = open(args.input, "r")
             entries = input_file.readlines()
@@ -69,11 +72,22 @@ class Jarm:
                 if len(port_check) == 2:
                     self.port = int(port_check[1][:-1])
                     self.host = port_check[0]
+
+                    self.main()
+
                 else:
-                    self.port = int(args.port)
+                    #self.port = int(args.port)
                     self.host = entry[:-1]
 
-                self.main()
+                    if self.port_range:
+                        for port in range(int(self.ports[0]), int(self.ports[1]) + 1):
+                            self.port = int(port)
+                            self.main()
+                    else:
+
+                        for port in self.ports:
+                            self.port = int(port)
+                            self.main()
         else:
             self.define_ports()
 
@@ -90,19 +104,49 @@ class Jarm:
                     self.main()
 
 
+        if self.to_file:
+            if self.json:
+                self.file.write(']}')
+            # Close files
+            self.file.close()
+        else:
+            if self.json:
+                sys.stdout.write(']}')
+        #self.output()
 
-        self.output()
 
+    def init_output(self):
+        if args.output:
+            if self.json:
+                output_file = args.output + ".json"
+            else:
+                output_file = args.output + ".csv"
+
+            self.file = open(output_file, "a+")
+
+            if os.path.getsize(output_file) <= 0 and not self.json:
+                self.file.write("Success,Host,Port,IP,Jarm_hash\n")
+            else:
+                self.file.write('{"result":[')
+        else:
+            if self.json:
+                sys.stdout.write('{"result":[')
 
     def define_ports(self):
-        if "," in args.port:
-            self.ports = args.port.split(",")
-        elif "-" in args.port:
-            self.ports = args.port.split("-")
-            self.port_range = True
-        else:
-            self.ports = []
-            self.ports.append(int(args.port))
+        try:
+            if "," in str(args.port):
+                self.ports = args.port.split(",")
+            elif "-" in str(args.port):
+                self.ports = args.port.split("-")
+                self.port_range = True
+            else:
+                self.ports = []
+                self.ports.append(int(args.port))
+
+        except Exception as erroMSG:
+            print("Invalid port: "+str(erroMSG))
+            sys.exit(2)
+
 
     #Randomly choose a grease value
     def choose_grease(self):
@@ -567,8 +611,15 @@ class Jarm:
         #Fuzzy hash
         self.result = self.jarm_hash(self.jarm)
 
-        print("Processing: " + self.host + ":" + str(self.port) + " | " + str(self.success))
-        self.output_data.append(self.format_output())
+        #print("Processing: " + self.host + ":" + str(self.port) + " | " + str(self.success))
+        if args.output:
+            self.file.write(self.format_output())
+        else:
+            if not self.json:
+                sys.stdout.write("#######################\n")
+            sys.stdout.write(self.format_output())
+
+        #self.output_data.append(self.format_output())
 
     def format_output(self):
         if self.json:
@@ -613,53 +664,18 @@ class Jarm:
                             "Resolved IP: " + str(self.ip) + "\n" +
                             "JARM Hash: " + str(self.result) + "\n")
 
-    def output(self):
-        if args.output:
-
-            if self.json:
-                output_file = args.output + ".json"
-            else:
-                output_file = args.output + ".csv"
-
-            self.file = open(output_file, "a+")
-
-            if os.path.getsize(output_file) <= 0 and not self.json:
-                self.file.write("Success,Host,Port,IP,Jarm_hash\n")
-            else:
-                self.file.write('{"result":[')
-        else:
-            if self.json:
-                sys.stdout.write('{"result":[')
-
-        for line in self.output_data:
-            if self.to_file:
-                self.file.write(line)
-            else:
-                if not self.json:
-                    sys.stdout.write("################\n")
-                sys.stdout.write(line)
-
-        if self.to_file:
-            if self.json:
-                self.file.write(']}')
-            # Close files
-            self.file.close()
-        else:
-            if self.json:
-                sys.stdout.write(']}')
-
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Enter an IP address and port to scan.")
     group = parser.add_mutually_exclusive_group()
     group.add_argument("scan", nargs='?', help="Enter an IP or domain to scan.")
     group.add_argument("-i", "--input", help="Provide a list of IP addresses or domains to scan, one domain or IP address per line.  Optional: Specify port to scan with comma separation (e.g. 8.8.4.4,853).", type=str)
-    parser.add_argument("-p", "--port", help="Enter a port to scan (default 443).", default=443)
+    parser.add_argument("-p", "--port", help="Enter a port to scan. This option accept individual port (e.g. 443) or ports list (e.g. 443,10443,444) or ports range (e.g. 443-445). (default: 443).", default=443)
     parser.add_argument("-v", "--verbose", help="Verbose mode: displays the JARM results before being hashed.", action="store_true")
     parser.add_argument("-V", "--version", help="Print out version and exit.", action="store_true")
     parser.add_argument("-o", "--output", help="Provide a filename to output/append results (CSV or JSON deppend of -j).", type=str)
     parser.add_argument("-j", "--json", help="Output ndjson (either to file or stdout; overrides --output defaults to CSV)", action="store_true")
-    parser.add_argument("-P", "--proxy", help="To use a SOCKS5 proxy, provide address:port.", type=str)
-    parser.add_argument("-t", "--timeout", help="Timeout in seconds to connect to server (default 20)", default=20, type=int)
+    parser.add_argument("-P", "--proxy", help="To use a SOCKS5 proxy, provide address:port (e.g. 192.168.10.50:8080).", type=str)
+    parser.add_argument("-t", "--timeout", help="Timeout in seconds to connect to server (default: 20)", default=20, type=int)
 
     args = parser.parse_args()
 
