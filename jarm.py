@@ -16,14 +16,14 @@
 #
 from __future__ import print_function
 
-import codecs
-import socket
-import struct
 import os
 import sys
 import random
-import argparse
+import codecs
+import socket
+import struct
 import hashlib
+import argparse
 import ipaddress
 
 class Jarm:
@@ -32,6 +32,8 @@ class Jarm:
         self.timeout = args.timeout
         self.port_range = False
         self.success = False
+        self.output_data = []
+        self.file = None
 
         # set proxy
         if args.proxy:
@@ -50,35 +52,14 @@ class Jarm:
 
         if args.output:
             self.to_file = True
-
-            if self.json:
-                output_file = args.output + ".json"
-            else:
-                output_file = args.output + ".csv"
-
-            self.file = open(output_file, "a+")
-
-            if os.path.getsize(output_file) <= 0 and not self.json:
-                self.file.write("Success,Host,Port,IP,Jarm\n")
-            else:
-                self.file.write('{"result":[')
         else:
             self.to_file = False
-
 
         if args.verbose:
             self.verbose = True
         else:
             self.verbose = False
 
-        if isinstance(args.port, int):
-            self.ports = []
-            self.ports.append(int(args.port))
-        elif "," in args.port:
-            self.ports = args.port.split(",")
-        elif "-" in args.port:
-            self.ports = args.port.split("-")
-            self.port_range = True
 
         if args.input:
             input_file = open(args.input, "r")
@@ -93,8 +74,9 @@ class Jarm:
                     self.host = entry[:-1]
 
                 self.main()
-
         else:
+            self.define_ports()
+
             self.host = args.scan
 
             if self.port_range:
@@ -102,15 +84,25 @@ class Jarm:
                     self.port = int(port)
                     self.main()
             else:
+
                 for port in self.ports:
                     self.port = int(port)
                     self.main()
 
-        if self.to_file:
-            if self.json:
-                self.file.write(']}')
-            # Close files
-            self.file.close()
+
+
+        self.output()
+
+
+    def define_ports(self):
+        if "," in args.port:
+            self.ports = args.port.split(",")
+        elif "-" in args.port:
+            self.ports = args.port.split("-")
+            self.port_range = True
+        else:
+            self.ports = []
+            self.ports.append(int(args.port))
 
     #Randomly choose a grease value
     def choose_grease(self):
@@ -483,6 +475,7 @@ class Jarm:
     def jarm_hash(self, jarm_raw):
         #If jarm is empty, 62 zeros for the hash
         if jarm_raw == "|||,|||,|||,|||,|||,|||,|||,|||,|||,|||":
+            self.success = False
             return "0"*62
         fuzzy_hash = ""
         handshakes = jarm_raw.split(",")
@@ -573,76 +566,111 @@ class Jarm:
                 self.jarm += ","
         #Fuzzy hash
         self.result = self.jarm_hash(self.jarm)
-        #Write to file
-        if args.output:
-            self.file.write(self.format_output())
 
-        #Print to STDOUT
-        else:
-            sys.stdout.write(self.format_output())
-
-            #Verbose mode adds pre-fuzzy-hashed JARM
-            if args.verbose:
-                if args.json:
-                    sys.stdout.write(',"jarm":"' + self.jarm + '"')
-                else:
-                    scan_count = 1
-                    for round in  self.jarm.split(","):
-                        print("Scan " + str(scan_count) + ": " + round, end="")
-                        if scan_count == len( self.jarm.split(",")):
-                            print("\n",end="")
-                        else:
-                            print(",")
-                        scan_count += 1
+        print("Processing: " + self.host + ":" + str(self.port) + " | " + str(self.success))
+        self.output_data.append(self.format_output())
 
     def format_output(self):
         if self.json:
             # Verbose mode adds pre-fuzzy-hashed JARM
             if self.verbose:
                 return '{"success":"' + str(self.success) + '","host":"' + str(self.host) + '","port":"' + str(self.port) + '","ip":"' + str(
-                    self.ip) + '","result":"' + str(self.result) + '","jarm":"' +  self.jarm + '"},\n'
+                    self.ip) + '","jarm_hash":"' + str(self.result) + '","jarm_debug":"' +  self.jarm + '"},\n'
             else:
                 return '{"success":"' + str(self.success) + '","host":"' + str(self.host) + '","port":"' + str(self.port) + '","ip":"' + str(
-                    self.ip) + '","result":"' + str(self.result) + '"},\n'
+                    self.ip) + '","jarm_hash":"' + str(self.result) + '"},\n'
 
         else:
             if self.to_file:
                 # Verbose mode adds pre-fuzzy-hashed JARM
                 if self.verbose:
-                    return str(self.success) + "," + str(self.host) + "," + str(self.port) + "," + str(self.ip) + "," + str(self.result)+ "," +  self.jarm + ",\n"
+                    return str(self.success) + "," + str(self.host) + "," + str(self.port) + "," + str(self.ip) + "," + str(self.result)+ "," +  self.jarm + "\n"
                 else:
-                    return str(self.success) + "," + str(self.host) + "," + str(self.port) + "," + str(self.ip) + "," + str(self.result) + ",\n"
+                    return str(self.success) + "," + str(self.host) + "," + str(self.port) + "," + str(self.ip) + "," + str(self.result) + "\n"
             else:
-                return("Sucess: " + str(self.success) + "\n" +
-                        "Domain: " + str(self.host) + "\n" +
-                        "Port: " + str(self.port) + "\n" +
-                        "Resolved IP: " + str(self.ip) + "\n" +
-                        "JARM: " + str(self.result) + "\n")
+                if self.verbose:
+                    debug = []
+                    text = "\n"
+                    scan_count = 1
+                    for round in self.jarm.split(","):
+                        debug.append("Scan " + str(scan_count) + ": " + round + "\n")
+
+                        scan_count += 1
+
+                    for line in debug:
+                        text += line
+
+                    return("Sucess: " + str(self.success) + "\n" +
+                            "Domain: " + str(self.host) + "\n" +
+                            "Port: " + str(self.port) + "\n" +
+                            "Resolved IP: " + str(self.ip) + "\n" +
+                            "JARM Hash: " + str(self.result) + "\n" +
+                            "JARM Debug: " + text + "\n")
+                else:
+                    return ("Sucess: " + str(self.success) + "\n" +
+                            "Domain: " + str(self.host) + "\n" +
+                            "Port: " + str(self.port) + "\n" +
+                            "Resolved IP: " + str(self.ip) + "\n" +
+                            "JARM Hash: " + str(self.result) + "\n")
+
+    def output(self):
+        if args.output:
+
+            if self.json:
+                output_file = args.output + ".json"
+            else:
+                output_file = args.output + ".csv"
+
+            self.file = open(output_file, "a+")
+
+            if os.path.getsize(output_file) <= 0 and not self.json:
+                self.file.write("Success,Host,Port,IP,Jarm_hash\n")
+            else:
+                self.file.write('{"result":[')
+        else:
+            if self.json:
+                sys.stdout.write('{"result":[')
+
+        for line in self.output_data:
+            if self.to_file:
+                self.file.write(line)
+            else:
+                if not self.json:
+                    sys.stdout.write("################\n")
+                sys.stdout.write(line)
+
+        if self.to_file:
+            if self.json:
+                self.file.write(']}')
+            # Close files
+            self.file.close()
+        else:
+            if self.json:
+                sys.stdout.write(']}')
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Enter an IP address and port to scan.")
+    group = parser.add_mutually_exclusive_group()
+    group.add_argument("scan", nargs='?', help="Enter an IP or domain to scan.")
+    group.add_argument("-i", "--input", help="Provide a list of IP addresses or domains to scan, one domain or IP address per line.  Optional: Specify port to scan with comma separation (e.g. 8.8.4.4,853).", type=str)
+    parser.add_argument("-p", "--port", help="Enter a port to scan (default 443).", default=443)
+    parser.add_argument("-v", "--verbose", help="Verbose mode: displays the JARM results before being hashed.", action="store_true")
+    parser.add_argument("-V", "--version", help="Print out version and exit.", action="store_true")
+    parser.add_argument("-o", "--output", help="Provide a filename to output/append results (CSV or JSON deppend of -j).", type=str)
+    parser.add_argument("-j", "--json", help="Output ndjson (either to file or stdout; overrides --output defaults to CSV)", action="store_true")
+    parser.add_argument("-P", "--proxy", help="To use a SOCKS5 proxy, provide address:port.", type=str)
+    parser.add_argument("-t", "--timeout", help="Timeout in seconds to connect to server (default 20)", default=20, type=int)
+
+    args = parser.parse_args()
+
+    if args.version:
+        print("JARM version 1.0")
+        exit()
+
+    if not (args.scan or args.input):
+        parser.error("A domain/IP to scan or an input file is required.")
 
 
-parser = argparse.ArgumentParser(description="Enter an IP address and port to scan.")
-group = parser.add_mutually_exclusive_group()
-group.add_argument("scan", nargs='?', help="Enter an IP or domain to scan.")
-group.add_argument("-i", "--input", help="Provide a list of IP addresses or domains to scan, one domain or IP address per line.  Optional: Specify port to scan with comma separation (e.g. 8.8.4.4,853).", type=str)
-parser.add_argument("-p", "--port", help="Enter a port to scan (default 443).", default=443)
-parser.add_argument("-v", "--verbose", help="Verbose mode: displays the JARM results before being hashed.", action="store_true")
-parser.add_argument("-V", "--version", help="Print out version and exit.", action="store_true")
-parser.add_argument("-o", "--output", help="Provide a filename to output/append results (CSV or JSON deppend of -j).", type=str)
-parser.add_argument("-j", "--json", help="Output ndjson (either to file or stdout; overrides --output defaults to CSV)", action="store_true")
-parser.add_argument("-P", "--proxy", help="To use a SOCKS5 proxy, provide address:port.", type=str)
-parser.add_argument("-t", "--timeout", help="Timeout in seconds to connect to server (default 20)", default=20, type=int)
-
-args = parser.parse_args()
-
-if args.version:
-    print("JARM version 1.0")
-    exit()
-
-if not (args.scan or args.input):
-    parser.error("A domain/IP to scan or an input file is required.")
-
-
-
-Jarm(args)
+    Jarm(args)
 
 

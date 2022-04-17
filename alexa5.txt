@@ -1,0 +1,5 @@
+google.com
+youtube.com
+tmall.com
+baidu.com
+qq.com
