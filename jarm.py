@@ -680,13 +680,10 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     if args.version:
-        print("JARM version 1.0")
+        print("JARM version 1.1")
         exit()
 
     if not (args.scan or args.input):
         parser.error("A domain/IP to scan or an input file is required.")
 
-
     Jarm(args)
-
-
